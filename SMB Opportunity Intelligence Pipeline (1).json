@@ -1,0 +1,1173 @@
+{
+  "name": "LeadRadar",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "f655debb-a45c-47f4-843f-6d9bc43a987f",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        672,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      },
+      "id": "0dd2c930-0642-4e2b-b524-66d19b28720c",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        864
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "AI lead discovery",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "keywords",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "processed",
+              "lookupValue": "no"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "36cfb84e-42dc-4af2-88e1-478483901b0f",
+      "name": "Get Keyword Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        752
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return items\n  .map((item, index) => ({\n    json: {\n      id: item.json.id,\n      keyword: item.json.keyword,\n      city: item.json.city || '',\n      area: item.json.area || '',\n      niche: item.json.niche || '',\n      processed: String(item.json.processed || '').toLowerCase(),\n      row_number: item.json.row_number || index + 2\n    }\n  }))\n  .filter(item =>\n    item.json.keyword &&\n    item.json.processed !== 'yes'\n  );"
+      },
+      "id": "dae49e94-455c-40e3-96f9-c5b093d16fa8",
+      "name": "Filter Unprocessed Keywords",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        752
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "b953c34e-0f5c-49c5-9ca2-254d614705f6",
+      "name": "Loop Through Keywords",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1328,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst item = $input.first().json;\n\nstaticData.currentKeyword = item.keyword;\nstaticData.currentKeywordId = item.id;\nstaticData.currentKeywordRowNumber = item.row_number;\n\nstaticData.currentCity = item.city;\nstaticData.currentArea = item.area;\nstaticData.currentNiche = item.niche;\n\nreturn [\n  {\n    json: item\n  }\n];"
+      },
+      "id": "89c651ca-b0f5-446f-ac6e-6c11679f0146",
+      "name": "Store Keyword Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "engine",
+              "value": "google_maps"
+            },
+            {
+              "name": "q",
+              "value": "={{ $json.keyword }}"
+            },
+            {
+              "name": "type",
+              "value": "search"
+            },
+            {
+              "name": "api_key",
+              "value": "YOUR_SERPAPI_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "acc53b77-a7c8-44e5-8b45-5b9ef9fccee4",
+      "name": "SerpAPI Google Maps Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1824,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst item = $input.first().json;\n\nconst results = item.local_results || [];\n\nreturn results.map(result => ({\n  json: {\n    ...result,\n\n    keyword_row_number:\n      staticData.currentKeywordRowNumber,\n\n    keyword:\n      staticData.currentKeyword,\n\n    keyword_id:\n      staticData.currentKeywordId,\n\n    city:\n      staticData.currentCity,\n\n    area:\n      staticData.currentArea,\n\n    niche:\n      staticData.currentNiche\n  }\n}));"
+      },
+      "id": "b5aa28f9-6d7d-4c36-9fc7-ddc5b3c268b8",
+      "name": "Flatten local_results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.filter(item => {\n  const b = item.json;\n  return (\n    b.reviews > 50 &&\n    b.website &&\n    b.rating >= 3.5 &&\n    b.rating <= 4.7\n  );\n});"
+      },
+      "id": "ea4081bc-7d55-4e7d-965c-dcaa152d1a1b",
+      "name": "Filter Businesses",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const seen = new Set();\nreturn items.filter(item => {\n  const url = item.json.website;\n  if (!url || seen.has(url)) return false;\n  seen.add(url);\n  return true;\n});"
+      },
+      "id": "ad3ee8cb-faad-451c-9ea9-a873e6632b7f",
+      "name": "Remove Duplicates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2416,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "d09b6f46-0cc3-4ee2-a1d3-9e317f46d48e",
+      "name": "Loop Through Businesses",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2656,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.firecrawl.dev/v0/scrape",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_FIRECRAWL_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ url: $json.website, formats: ['markdown'] }) }}",
+        "options": {}
+      },
+      "id": "e7e67631-18c3-4559-ae59-4ada80404a16",
+      "name": "Firecrawl Website Scrape",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3440,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "698f6490-1fff-48a7-9cfa-5ca2acb9f183",
+      "name": "Combine Website Intelligence",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        3632,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "YOUR_GEMINI_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.request_body) }}",
+        "options": {}
+      },
+      "id": "af4726b3-d639-4f91-86f8-8c14910835cb",
+      "name": "OpenAI Opportunity Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4352,
+        880
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// const originalData = $json.original_business || $json;\n\n// const business = {\n//   name:\n//     originalData.title ||\n//     originalData.name ||\n//     originalData.business_name ||\n//     'Unknown',\n\n//   website: originalData.website || '',\n\n//   rating: Number(originalData.rating || 0),\n\n//   reviews: Number(originalData.reviews || 0),\n\n//   phone: originalData.phone || '',\n\n//   address: originalData.address || '',\n\n//   keyword_row_number:\n//     originalData.keyword_row_number || null,\n\n//   place_id:\n//     originalData.place_id ||\n//     originalData.data_id ||\n//     '',\n\n//   category:\n//     originalData.type ||\n//     originalData.category ||\n//     '',\n\n//   keyword:\n//     originalData.keyword || '',\n\n//   city:\n//     originalData.city || '',\n\n//   area:\n//     originalData.area || '',\n\n//   niche:\n//     originalData.niche || ''\n// };\n\n// let analysis = {};\n\n// try {\n//   const rawContent =\n//     $json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\n\n//   analysis = JSON.parse(rawContent);\n\n// } catch (e) {\n\n//   analysis = {\n//     business_name: business.name,\n//     automation_score: 0,\n//     issues: [],\n//     outreach_angle:\n//       'Unable to analyze — parsing failed'\n//   };\n// }\n\n// const issues = analysis.issues || [];\n\n// const issueCount = issues.length;\n\n// const highSeverityCount = issues.filter(\n//   i => i.severity === 'High'\n// ).length;\n\n// const avgConfidence = issueCount > 0\n//   ? issues.reduce(\n//       (sum, i) =>\n//         sum + (\n//           i.confidence_score ||\n//           i.confidence ||\n//           0\n//         ),\n//       0\n//     ) / issueCount\n//   : 0;\n\n// const reviewScore = Math.min(\n//   30,\n//   (business.reviews || 0) / 10\n// );\n\n// const ratingScore = Math.max(\n//   0,\n//   Math.min(\n//     40,\n//     ((business.rating || 0) - 3.5) * 20\n//   )\n// );\n\n// const websiteScore =\n//   business.website &&\n//   !business.website.includes('instagram.com') &&\n//   !business.website.includes('facebook.com')\n//     ? 20\n//     : 0;\n\n// const businessQualityScore =\n//   reviewScore +\n//   ratingScore +\n//   websiteScore;\n\n// const issueScore = Math.min(\n//   40,\n//   issueCount * 8\n// );\n\n// const severityScore = Math.min(\n//   30,\n//   highSeverityCount * 10\n// );\n\n// const confidenceScore = Math.min(\n//   30,\n//   avgConfidence * 0.3\n// );\n\n// const automationNeedScore =\n//   issueScore +\n//   severityScore +\n//   confidenceScore;\n\n// const leadScore = Math.round(\n//   (businessQualityScore * 0.4) +\n//   (automationNeedScore * 0.6)\n// );\n\n// return {\n//   json: {\n\n//     place_id: business.place_id,\n\n//     business_name:\n//       analysis.business_name ||\n//       business.name,\n\n//     website: business.website,\n\n//     google_maps_link:\n//       business.place_id\n//         ? `https://www.google.com/maps/place/?q=place_id:${business.place_id}`\n//         : '',\n\n//     rating: business.rating,\n\n//     reviews: business.reviews,\n\n//     phone: business.phone,\n\n//     address: business.address,\n\n//     category: business.category,\n\n//     keyword: business.keyword,\n\n//     niche: business.niche,\n\n//     city: business.city,\n\n//     area: business.area,\n\n//     automation_score:\n//       analysis.automation_score ||\n//       leadScore,\n\n//     lead_score: leadScore,\n\n//     automation_opportunities: JSON.stringify(\n//       issues.slice(0, 3).map(i => ({\n//         issue: i.issue,\n//         solution: i.suggested_solution\n//       }))\n//     ),\n\n//     ai_summary:\n//       analysis.ai_opportunity_summary || '',\n\n//     pain_points:\n//       issues.map(i => i.issue).join(', '),\n\n//     recommended_solution:\n//       issues[0]?.suggested_solution || '',\n\n//     outreach_angle:\n//       analysis.outreach_angle || '',\n\n//     issues_count: issueCount,\n\n//     high_severity_issues:\n//       highSeverityCount,\n\n//     keyword_row_number:\n//       business.keyword_row_number,\n\n//     contacted: 'no',\n\n//     status: 'new',\n\n//     analyzed_at:\n//       new Date().toISOString()\n//   }\n// };\n\nconst originalData = $json.original_business || $json;\n\nconst business = {\n  name:\n    originalData.title ||\n    originalData.name ||\n    originalData.business_name ||\n    'Unknown',\n  website: originalData.website || '',\n  rating: Number(originalData.rating || 0),\n  reviews: Number(originalData.reviews || 0),\n  phone: originalData.phone || '',\n  address: originalData.address || '',\n  keyword_row_number: originalData.keyword_row_number || null,\n  place_id: originalData.place_id || originalData.data_id || '',\n  category: originalData.type || originalData.category || '',\n  keyword: originalData.keyword || '',\n  city: originalData.city || '',\n  area: originalData.area || '',\n  niche: originalData.niche || ''\n};\n\nlet analysis = {};\n\ntry {\n  let rawContent =\n    $json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\n\n  // Strip markdown fences (safety net even with responseMimeType set)\n  rawContent = rawContent\n    .replace(/```json/gi, '')\n    .replace(/```/g, '')\n    .trim();\n\n  // Extract the JSON object in case there's any leading/trailing text\n  const jsonMatch = rawContent.match(/\\{[\\s\\S]*\\}/);\n  if (!jsonMatch) throw new Error('No JSON object found in response');\n\n  analysis = JSON.parse(jsonMatch[0]);\n\n} catch (e) {\n  analysis = {\n    business_name: business.name,\n    automation_score: 0,\n    urgency_score: 0,\n    issues: [],\n    outreach_angle: 'Unable to analyze — parsing failed',\n    ai_opportunity_summary: '',\n    best_offer_to_pitch: '',\n    likely_decision_maker: ''\n  };\n}\n\nconst issues = analysis.issues || [];\nconst issueCount = issues.length;\n\nconst highSeverityCount = issues.filter(\n  i => (i.severity || '').toLowerCase() === 'high'\n).length;\n\nconst avgConfidence =\n  issueCount > 0\n    ? issues.reduce(\n        (sum, i) => sum + (i.confidence_score || i.confidence || 0),\n        0\n      ) / issueCount\n    : 0;\n\n// --- Scoring ---\nconst reviewScore   = Math.min(30, (business.reviews || 0) / 10);\nconst ratingScore   = Math.max(0, Math.min(40, ((business.rating || 0) - 3.5) * 20));\nconst websiteScore  =\n  business.website &&\n  !business.website.includes('instagram.com') &&\n  !business.website.includes('facebook.com')\n    ? 20 : 0;\n\nconst businessQualityScore = reviewScore + ratingScore + websiteScore;\n\nconst issueScore      = Math.min(40, issueCount * 8);\nconst severityScore   = Math.min(30, highSeverityCount * 10);\nconst confidenceScore = Math.min(30, avgConfidence * 0.3);\nconst automationNeedScore = issueScore + severityScore + confidenceScore;\n\nconst leadScore = Math.round(\n  (businessQualityScore * 0.4) + (automationNeedScore * 0.6)\n);\n\n// --- Output ---\nreturn {\n  json: {\n    place_id: business.place_id,\n    business_name: analysis.business_name || business.name,\n    website: business.website,\n    google_maps_link: business.place_id\n      ? `https://www.google.com/maps/place/?q=place_id:${business.place_id}`\n      : '',\n    rating: business.rating,\n    reviews: business.reviews,\n    phone: business.phone,\n    address: business.address,\n    category: business.category,\n    keyword: business.keyword,\n    niche: business.niche,\n    city: business.city,\n    area: business.area,\n    automation_score: analysis.automation_score || leadScore,\n    urgency_score: analysis.urgency_score || 0,\n    lead_score: leadScore,\n    automation_opportunities: JSON.stringify(\n      issues.slice(0, 3).map(i => ({\n        issue: i.issue,\n        solution: i.suggested_solution\n      }))\n    ),\n    ai_summary: analysis.ai_opportunity_summary || '',\n    best_offer: analysis.best_offer_to_pitch || '',\n    decision_maker: analysis.likely_decision_maker || '',\n    pain_points: issues.map(i => i.issue).join(', '),\n    recommended_solution: issues[0]?.suggested_solution || '',\n    outreach_angle: analysis.outreach_angle || '',\n    issues_count: issueCount,\n    high_severity_issues: highSeverityCount,\n    keyword_row_number: business.keyword_row_number,\n    contacted: 'no',\n    status: 'new',\n    analyzed_at: new Date().toISOString()\n  }\n};"
+      },
+      "id": "35a74a6c-75e2-40fc-9871-74924f508db6",
+      "name": "Parse Analysis and Score Lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4832,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "AI lead discovery",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2120655592,
+          "mode": "list",
+          "cachedResultName": "store lead intelligence",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=2120655592"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "place_id": "={{$json.place_id}}",
+            "business_name": "={{$json.business_name}}",
+            "rating": "={{$json.rating}}",
+            "reviews": "={{$json.reviews}}",
+            "phone": "={{\"'\" + $json.phone}}",
+            "category": "={{$json.category}}",
+            "automation_need_score": "={{ $json.automation_score }}",
+            "lead_score": "={{$json.lead_score}}",
+            "automation_score": "={{$json.automation_score}}",
+            "automation_opportunities": "={{ $json.automation_opportunities }}",
+            "outreach_angle": "={{$json.outreach_angle}}",
+            "issues_count": "={{$json.issues_count}}",
+            "scraped_at": "={{ $json.analyzed_at }}",
+            "ai_summary": "={{ $json.ai_summary }}",
+            "pain_points": "={{ $json.pain_points }}",
+            "recommended_solution": "={{ $json.recommended_solution }}",
+            "website": "={{ $json.website }}",
+            "address": "={{ $json.address }}",
+            "keyword": "={{ $json.keyword }}",
+            "niche": "={{ $json.niche }}",
+            "city": "={{ $json.city }}",
+            "google_maps_link": "={{ $json.google_maps_link }}",
+            "contacted": "={{ $json.contacted }}",
+            "status": "={{ $json.status }}",
+            "area": "={{ $json.area }}",
+            "keyword_row_number": "={{ $json.keyword_row_number }}",
+            "urgency_score": "={{ $json.urgency_score }}",
+            "high_severity_issues": "={{ $json.high_severity_issues }}",
+            "best_offer": "={{ $json.best_offer }}",
+            "decision_maker": "={{ $json.decision_maker }}"
+          },
+          "matchingColumns": [
+            "place_id"
+          ],
+          "schema": [
+            {
+              "id": "place_id",
+              "displayName": "place_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "business_name",
+              "displayName": "business_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "keyword_row_number",
+              "displayName": "keyword_row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "keyword",
+              "displayName": "keyword",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "niche",
+              "displayName": "niche",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "area",
+              "displayName": "area",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "google_maps_link",
+              "displayName": "google_maps_link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "rating",
+              "displayName": "rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reviews",
+              "displayName": "reviews",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "automation_score",
+              "displayName": "automation_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "urgency_score",
+              "displayName": "urgency_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lead_score",
+              "displayName": "lead_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "automation_need_score",
+              "displayName": "automation_need_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ai_summary",
+              "displayName": "ai_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "issues_count",
+              "displayName": "issues_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "high_severity_issues",
+              "displayName": "high_severity_issues",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "automation_opportunities",
+              "displayName": "automation_opportunities",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "pain_points",
+              "displayName": "pain_points",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "outreach_angle",
+              "displayName": "outreach_angle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "recommended_solution",
+              "displayName": "recommended_solution",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "best_offer",
+              "displayName": "best_offer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "decision_maker",
+              "displayName": "decision_maker",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contacted",
+              "displayName": "contacted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "scraped_at",
+              "displayName": "scraped_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "84b3e621-21a6-4f90-bdba-9bd87be7c778",
+      "name": "Store Lead Intelligence",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        5040,
+        912
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nstaticData.currentKeywordId = $json.id;\nstaticData.currentKeyword = $json.keyword;\nstaticData.currentKeywordRowNumber = $json.row_number;\n\nreturn items;"
+      },
+      "id": "6d5aa926-4b6d-41d4-adbf-8c1f618f8c81",
+      "name": "Prepare Keyword Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        1232
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "AI lead discovery",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "keywords",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{$json.id}}",
+            "processed": "yes"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "keyword",
+              "displayName": "keyword",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "processed",
+              "displayName": "processed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "niche",
+              "displayName": "niche",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "area",
+              "displayName": "area",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "c456ace7-a515-422a-82fa-7fc19c4b421b",
+      "name": "Mark Keyword Processed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        2176,
+        1232
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "dad771cd-f689-4419-b155-43a81e3b5182",
+      "name": "Wait Between Keywords",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2448,
+        1232
+      ],
+      "webhookId": "smb-pipeline-wait-001"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const website = (item.json.website || '').toLowerCase();\n\n  const hasRealWebsite =\n    website &&\n    !website.includes('instagram.com') &&\n    !website.includes('facebook.com') &&\n    !website.includes('zomato') &&\n    !website.includes('swiggy') &&\n    !website.includes('linkedin.com') &&\n    !website.includes('twitter.com') &&\n    !website.includes('x.com');\n\n  item.json.has_real_website = hasRealWebsite;\n\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3072,
+        736
+      ],
+      "id": "247f79da-6791-4d3e-818b-99d4d960e212",
+      "name": "exclude if no website"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "afea838a-eb45-4b26-b7ae-11ffa9e62fca",
+              "leftValue": "={{ $json.has_real_website }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3280,
+        736
+      ],
+      "id": "ead82631-d489-44b5-bd74-f82a9f5a0523",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        4672,
+        768
+      ],
+      "id": "a874f8d5-f2ae-4df2-8674-d95e871f5ecb",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst businessData = {\n  place_id: $json.place_id || '',\n  name: $json.title || 'Unknown Business',\n  rating: $json.rating || null,\n  reviews: $json.reviews || 0,\n  phone: $json.phone || '',\n  address: $json.address || '',\n  website: $json.website || '',\n  category: $json.type || '',\n  keyword: $json.keyword || '',\n  keyword_row_number: $json.keyword_row_number || null,\n  has_real_website: $json.has_real_website || false\n};\n\n\nlet websiteContent = ($json.data && $json.data.markdown)\n  ? $json.data.markdown\n  : '';\n\nwebsiteContent = websiteContent\n  .replace(/!\\[.*?\\]\\(.*?\\)/g, '')\n  .replace(/\\[([^\\]]*)\\]\\([^\\)]*\\)/g, '$1')\n  .replace(/[\\\\*_`#>]/g, '')\n  .replace(/\\n{3,}/g, '\\n\\n')\n  .trim()\n  .substring(0, 1500);\n\nconst hasWebsiteContent =\n  websiteContent &&\n  websiteContent !== 'No website content available';\n\nconst systemPrompt = `\nYou are an elite SMB automation consultant and AI systems strategist.\n\nYour task is to analyze businesses and identify:\n- operational inefficiencies\n- customer service bottlenecks\n- manual workflows\n- poor digital presence\n- weak customer engagement systems\n- missing automations\n- AI assistant opportunities\n- CRM opportunities\n- lead capture issues\n- booking/order inefficiencies\n- missing analytics systems\n- reputation management gaps\n- marketing automation opportunities\n\nYou must think like:\n- an automation agency\n- an AI consultant\n- a SaaS founder\n- a cold outreach strategist\n\nIf the business has NO real website:\nfocus heavily on:\n- weak digital presence\n- poor discoverability\n- Instagram-only presence\n- missing booking systems\n- lack of lead capture\n- lack of automation\n- lack of SEO\n- reputation management opportunities\n\nFor every issue provide:\n- issue\n- severity\n- suggested_solution\n- business_impact\n- confidence_score\n- estimated_monthly_value\n\nAlso generate:\n- automation_score (0-100)\n- urgency_score (0-100)\n- outreach_angle\n- best_offer_to_pitch\n- likely_decision_maker\n- ai_opportunity_summary\n\nReturn ONLY valid JSON.\n\nJSON format:\n{\n  \"business_name\": \"string\",\n  \"automation_score\": 0,\n  \"urgency_score\": 0,\n  \"website_quality\": \"string\",\n  \"digital_presence\": \"string\",\n  \"best_offer_to_pitch\": \"string\",\n  \"likely_decision_maker\": \"string\",\n  \"ai_opportunity_summary\": \"string\",\n  \"issues\": [\n    {\n      \"issue\": \"string\",\n      \"severity\": \"High\",\n      \"suggested_solution\": \"string\",\n      \"business_impact\": \"string\",\n      \"confidence_score\": 90,\n      // \"estimated_monthly_value\": \"string\"\n    }\n  ],\n  \"outreach_angle\": \"string\"\n}\n`;\n\nconst userContent = `\nBusiness Name: ${businessData.name}\nCategory: ${businessData.category}\nRating: ${businessData.rating}/5\nReviews: ${businessData.reviews}\nAddress: ${businessData.address}\nPhone: ${businessData.phone}\nWebsite: ${businessData.website}\nKeyword: ${businessData.keyword}\n\nHas Real Website: ${businessData.has_real_website}\n\nWebsite Content:\n${hasWebsiteContent ? websiteContent : 'NO WEBSITE CONTENT AVAILABLE'}\n\nAnalyze this business thoroughly.\n`;\n\nreturn {\n  json: {\n    original_business: $json,\n\n    request_body: {\n      contents: [\n        {\n          parts: [\n            {\n              text: `\n${systemPrompt}\n\n${userContent}\n\nIMPORTANT:\nReturn ONLY valid JSON.\nDo not wrap JSON in markdown.\nDo not add explanations.\n`\n            }\n          ]\n        }\n      ],\n\n      generationConfig: {\n        temperature: 0.3,\n        maxOutputTokens: 4000,\n        responseMimeType: \"application/json\",   // also add this (fixes markdown fence issue)\n        thinkingConfig: {\n          thinkingBudget: 0                     // disables thinking entirely\n        }\n      }\n    }\n  }\n};"
+      },
+      "id": "d1de1d3a-d582-4ce9-983e-82fff3f48915",
+      "name": "Build Gemini Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4032,
+        752
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Keyword Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Keyword Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Keyword Rows": {
+      "main": [
+        [
+          {
+            "node": "Filter Unprocessed Keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Unprocessed Keywords": {
+      "main": [
+        [
+          {
+            "node": "Loop Through Keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Through Keywords": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Store Keyword Context",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Prepare Keyword Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Keyword Context": {
+      "main": [
+        [
+          {
+            "node": "SerpAPI Google Maps Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SerpAPI Google Maps Search": {
+      "main": [
+        [
+          {
+            "node": "Flatten local_results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten local_results": {
+      "main": [
+        [
+          {
+            "node": "Filter Businesses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Businesses": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Loop Through Businesses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Through Businesses": {
+      "main": [
+        [
+          {
+            "node": "Prepare Keyword Update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Combine Website Intelligence",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "exclude if no website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firecrawl Website Scrape": {
+      "main": [
+        [
+          {
+            "node": "Combine Website Intelligence",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine Website Intelligence": {
+      "main": [
+        [
+          {
+            "node": "Build Gemini Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Opportunity Analysis": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Parse Analysis and Score Lead": {
+      "main": [
+        [
+          {
+            "node": "Store Lead Intelligence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Lead Intelligence": {
+      "main": [
+        [
+          {
+            "node": "Loop Through Businesses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Keyword Update": {
+      "main": [
+        [
+          {
+            "node": "Mark Keyword Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Keyword Processed": {
+      "main": [
+        [
+          {
+            "node": "Wait Between Keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Between Keywords": {
+      "main": [
+        [
+          {
+            "node": "Loop Through Keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "exclude if no website": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Firecrawl Website Scrape",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Gemini Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Parse Analysis and Score Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Gemini Request": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "OpenAI Opportunity Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "9619d8da-8743-4de4-8767-17f749ae952d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "id": "HR4G3x27iVxYQMvR",
+  "tags": []
+}
