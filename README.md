@@ -1,171 +1,115 @@
-# LeadRadar
+# LeadRadar Pipeline
 
-An n8n automation that discovers, qualifies, and AI-scores local SMB leads from Google Maps — fully hands-off.
-
-Feed it a list of keywords. It finds real local businesses, scrapes their websites, runs Gemini AI analysis on each one, and delivers a scored lead sheet with outreach angles, pain points, and the best offer to pitch.
+A fully automated, two-stage n8n pipeline for discovering local SMB leads and converting them into ready-to-send personalized cold emails — entirely hands-off.
 
 ---
 
-## What It Does
-
-1. Reads search keywords (e.g. `"plumber in Austin"`) from a Google Sheet
-2. Queries Google Maps via SerpAPI and pulls back local business listings
-3. Applies quality filters — reviews, rating, and real website presence
-4. Scrapes each qualifying business's website with Firecrawl
-5. Sends all data to **Gemini 2.5 Flash** for deep opportunity analysis
-6. Scores every lead on automation need, urgency, and business quality
-7. Writes the enriched lead record back to Google Sheets
-8. Marks each keyword as processed and loops to the next one
-
----
-
-## Pipeline Flow
+## How It Works
 
 ```
-Trigger (Manual / Schedule)
-  └── Get Keyword Rows (Google Sheets)
-        └── Filter Unprocessed Keywords
-              └── Loop Through Keywords
-                    ├── Store Keyword Context
-                    │     └── SerpAPI Google Maps Search
-                    │           └── Flatten Results
-                    │                 └── Filter Businesses (reviews > 50, rating 3.5–4.7)
-                    │                       └── Remove Duplicates (by website URL)
-                    │                             └── Loop Through Businesses
-                    │                                   ├── Check for Real Website
-                    │                                   │     ├── [has website] → Firecrawl Scrape → Combine Data
-                    │                                   │     └── [no website]  → Build Gemini Request directly
-                    │                                   │                               └── Gemini 2.5 Flash Analysis
-                    │                                   │                                     └── Parse & Score Lead
-                    │                                   │                                           └── Store Lead Intelligence (Google Sheets)
-                    └── Mark Keyword as Processed → Wait → Next Keyword
+Stage 1 — LeadRadar
+  Scans Google Maps → filters businesses → AI scores automation opportunities
+                              ↓
+                      Google Sheets (shared)
+                              ↓
+Stage 2 — OutreachForge
+  Finds real contacts → scrapes website → AI writes personalized cold email
 ```
+
+Both workflows share a single Google Sheet. LeadRadar fills it with scored leads. OutreachForge reads from it and produces outreach-ready emails.
 
 ---
 
-## Setup
+## Stage 1 — LeadRadar
 
-### Prerequisites
+> `leadradar/`
 
-- [n8n](https://n8n.io) — self-hosted or cloud
-- A Google account with access to Google Sheets
-- API keys for three services (see below)
+Takes a list of search keywords (e.g. `"dentist in Mumbai"`) and:
 
-### 1. API Keys
+- Searches Google Maps via SerpAPI for local businesses
+- Filters by quality: >50 reviews, rating 3.5–4.7, real website
+- Scrapes each business's website with Firecrawl
+- Sends data to Gemini 2.5 Flash for deep opportunity analysis
+- Scores each lead on automation need, urgency, and business quality
+- Writes enriched lead records to Google Sheets
 
-| Service | Purpose | Where to get it |
+**APIs used:** SerpAPI · Firecrawl · Google Gemini · Google Sheets
+
+**Trigger:** Manual or scheduled every 24 hours
+
+[View full LeadRadar setup →](leadradar/README.md)
+
+---
+
+## Stage 2 — OutreachForge
+
+> `outreachforge/`
+
+Picks up high-scoring leads from LeadRadar (lead score >60) and:
+
+- Searches Apollo.io for the real decision-maker at each business
+- Uses Hunter.io as a fallback for email discovery by domain
+- Scrapes the business website again for live context
+- Sends everything to Gemini 2.5 Flash to write a short, specific cold email
+- Writes contact details + personalized email to a separate Google Sheet tab
+
+**APIs used:** Apollo.io · Hunter.io · Firecrawl · Google Gemini · Google Sheets
+
+**Trigger:** Manual or scheduled every 6 hours
+
+[View full OutreachForge setup →](outreachforge/README.md)
+
+---
+
+## Google Sheets Structure
+
+Both workflows share **one Google Sheet** with three tabs:
+
+| Tab | Written by | Read by |
 |---|---|---|
-| [SerpAPI](https://serpapi.com) | Google Maps business search | serpapi.com → Dashboard |
-| [Firecrawl](https://firecrawl.dev) | Website content scraping | firecrawl.dev → API Keys |
-| [Google Gemini](https://aistudio.google.com) | AI opportunity analysis | Google AI Studio → Get API Key |
+| `keywords` | You (manually add keywords) | LeadRadar |
+| `store lead intelligence` | LeadRadar | OutreachForge |
+| `outreach enrichment` | OutreachForge | You |
 
-### 2. Google Sheets Setup
+---
 
-Create a Google Sheet with **two tabs**:
+## Quick Start
 
-#### Tab 1: `keywords`
+### 1. Set up the Google Sheet
 
-| Column | Description |
+Create one Google Sheet with three tabs as described in each workflow's README. Copy the Sheet ID from the URL.
+
+### 2. Get your API keys
+
+| Key | Used by |
 |---|---|
-| `id` | Unique row ID (e.g. `1`, `2`, `3`) |
-| `keyword` | Search query (e.g. `dentist in Chicago`) |
-| `city` | City name |
-| `area` | Neighbourhood or district |
-| `niche` | Business category label |
-| `processed` | Leave blank — the workflow sets this to `yes` after processing |
+| SerpAPI | LeadRadar |
+| Firecrawl | LeadRadar + OutreachForge |
+| Google Gemini | LeadRadar + OutreachForge |
+| Apollo.io | OutreachForge |
+| Hunter.io | OutreachForge |
 
-#### Tab 2: `store lead intelligence`
+### 3. Import into n8n
 
-The workflow writes to this sheet automatically. Create it with these columns:
+- Import `leadradar/SMB Opportunity Intelligence Pipeline (1).json` first
+- Import `outreachforge/Lead Enrichment + Outreach Preparation.json` second
+- Fill in all API key placeholders in both workflows
+- Connect your Google Sheets OAuth2 credential
 
-`place_id` · `business_name` · `keyword` · `keyword_row_number` · `niche` · `city` · `area` · `address` · `website` · `phone` · `google_maps_link` · `rating` · `reviews` · `category` · `automation_score` · `urgency_score` · `lead_score` · `automation_need_score` · `ai_summary` · `issues_count` · `high_severity_issues` · `automation_opportunities` · `pain_points` · `outreach_angle` · `recommended_solution` · `best_offer` · `decision_maker` · `contacted` · `status` · `scraped_at`
+### 4. Run
 
-### 3. Import Into n8n
-
-1. Download `SMB Opportunity Intelligence Pipeline (1).json`
-2. In n8n, go to **Workflows → Import from File**
-3. Open the workflow and replace every placeholder:
-
-| Placeholder | Replace with |
-|---|---|
-| `YOUR_SERPAPI_KEY` | Your SerpAPI key |
-| `YOUR_FIRECRAWL_API_KEY` | Your Firecrawl key (keep the `Bearer ` prefix) |
-| `YOUR_GEMINI_API_KEY` | Your Gemini API key |
-| `YOUR_GOOGLE_SHEET_ID` | The ID from your Google Sheet URL |
-| `YOUR_GOOGLE_SHEETS_CREDENTIAL_ID` | Your n8n Google Sheets credential ID |
-
-4. Connect a **Google Sheets OAuth2** credential in the three Sheets nodes
-5. Activate the workflow
-
----
-
-## Lead Scoring
-
-Each business gets three scores:
-
-### Lead Score (0–100)
-Composite of business quality (40%) and automation need (60%).
-
-**Business quality factors:**
-- Review count: up to 30 points (`reviews / 10`, capped at 30)
-- Rating quality: up to 40 points (sweet spot around 4.0–4.5)
-- Real website: 20 points (excluded if social profile only)
-
-**Automation need factors:**
-- Number of detected issues (up to 40 pts)
-- High-severity issue count (up to 30 pts)
-- AI confidence score (up to 30 pts)
-
-### Automation Score (0–100)
-Gemini's direct assessment of how much automation opportunity exists at this business.
-
-### Urgency Score (0–100)
-Gemini's assessment of how urgently the business needs help — useful for prioritising outreach order.
-
----
-
-## Business Filtering Criteria
-
-Businesses pass through two filter stages before reaching the AI:
-
-**Stage 1 — Quality filter:**
-- More than 50 Google reviews
-- Rating between 3.5 and 4.7 (established but imperfect — prime for improvement)
-- Has a website listed on Google Maps
-
-**Stage 2 — Real website check:**
-Excluded if the website is one of: `instagram.com`, `facebook.com`, `zomato`, `swiggy`, `linkedin.com`, `twitter.com`, `x.com`
-
-Businesses with no real website still proceed to AI analysis — Gemini flags weak digital presence as an opportunity.
-
----
-
-## AI Analysis
-
-Gemini 2.5 Flash analyses each business and returns a structured JSON with:
-
-- `issues[]` — list of detected problems, each with severity, suggested solution, business impact, and confidence score
-- `automation_score` — overall automation opportunity rating
-- `urgency_score` — outreach urgency rating
-- `outreach_angle` — recommended hook for cold outreach
-- `best_offer_to_pitch` — the specific service or solution most likely to resonate
-- `likely_decision_maker` — who to contact at this business
-- `ai_opportunity_summary` — one-paragraph narrative on the opportunity
-
-The model is prompted to think like an automation agency, AI consultant, SaaS founder, and cold outreach strategist simultaneously.
-
----
-
-## Scheduling
-
-The workflow includes a **Schedule Trigger** (disabled by default) set to run every 24 hours. Enable it to run LeadRadar automatically each day — it will pick up any new unprocessed keywords added to the sheet overnight.
+1. Add keywords to the `keywords` tab (with city, area, niche columns filled)
+2. Run **LeadRadar** — it will populate `store lead intelligence` with scored leads
+3. Run **OutreachForge** — it will enrich top leads and write cold emails to `outreach enrichment`
 
 ---
 
 ## Tech Stack
 
 - **n8n** — workflow automation
-- **SerpAPI** — Google Maps data
+- **SerpAPI** — Google Maps business data
+- **Apollo.io** — contact and email discovery
+- **Hunter.io** — domain email lookup
 - **Firecrawl** — website scraping
-- **Google Gemini 2.5 Flash** — AI analysis
-- **Google Sheets** — input keywords + output leads
+- **Google Gemini 2.5 Flash** — AI analysis and email generation
+- **Google Sheets** — data storage throughout the pipeline

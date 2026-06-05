@@ -1,0 +1,726 @@
+{
+  "name": "OutreachForge",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1442c1f8-7549-4f56-a208-f286cd8f59ea",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "d04b3ef3-1c78-4ca2-8c75-494bc7b2d783",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        192
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "AI lead discovery",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2120655592,
+          "mode": "list",
+          "cachedResultName": "store lead intelligence",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=2120655592"
+        },
+        "options": {}
+      },
+      "id": "0a57fee6-90ac-4c4e-9fb1-4c7e49370c54",
+      "name": "Read Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        80
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.filter(item => {\n  const lead = item.json;\n  const leadScore = Number(lead.lead_score || 0);\n  const automationScore = Number(lead.automation_score || 0);\n  const status = String(lead.status || '').toLowerCase().trim();\n  const contacted = String(lead.contacted || '').toLowerCase().trim();\n  const hasEmailDraft = lead.personalized_email && String(lead.personalized_email).length > 10;\n\n  return (\n    leadScore > 60 &&\n    automationScore > 20 &&\n    (status === 'new' || status === '') &&\n    contacted !== 'yes' &&\n    !hasEmailDraft &&\n    lead.website &&\n    !String(lead.website).includes('instagram.com') &&\n    !String(lead.website).includes('facebook.com') &&\n    !String(lead.website).includes('zomato.com') &&\n    !String(lead.website).includes('swiggy.com')\n  );\n});"
+      },
+      "id": "aadba5f8-a913-424a-b3c6-c24a4f48ebb6",
+      "name": "Filter High-Quality Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "e56aeb97-4fa7-4cc5-a07c-156439d2e7cd",
+      "name": "Loop Through Leads",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        672,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst lead = items[0].json;\n\nlet domain = '';\ntry {\n  domain = new URL(lead.website).hostname.replace(/^www\\./, '');\n} catch(e) {\n  domain = (lead.website || '')\n    .replace(/^https?:\\/\\/(www\\.)?/, '')\n    .split('/')[0]\n    .split('?')[0];\n}\n\nstaticData.currentEnrichLead = {\n  place_id: lead.place_id || '',\n  business_name: lead.business_name || '',\n  website: lead.website || '',\n  domain: domain,\n  rating: lead.rating || 0,\n  reviews: lead.reviews || 0,\n  phone: lead.phone || '',\n  address: lead.address || '',\n  category: lead.category || '',\n  keyword: lead.keyword || '',\n  niche: lead.niche || '',\n  city: lead.city || '',\n  area: lead.area || '',\n  pain_points: lead.pain_points || '',\n  automation_opportunities: lead.automation_opportunities || '[]',\n  outreach_angle: lead.outreach_angle || '',\n  ai_summary: lead.ai_summary || '',\n  best_offer: lead.best_offer || '',\n  recommended_solution: lead.recommended_solution || '',\n  lead_score: Number(lead.lead_score || 0),\n  automation_score: Number(lead.automation_score || 0)\n};\n\nreturn [{ json: { ...lead, extracted_domain: domain } }];"
+      },
+      "id": "36139d63-aa8d-4da8-a828-e95d53b387b2",
+      "name": "Store Lead Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const contacts = $json.contacts || [];\n\ncontacts.sort((a, b) => \n  (b.confidence_score || 0) - (a.confidence_score || 0)\n);\n\nconst best = contacts[0] || {};\n\nreturn [\n  {\n    json: {\n      website: $json.website || '',\n      extracted_domain: $json.extracted_domain || '',\n\n      contact_name: best.contact_name || '',\n      contact_role: best.contact_role || '',\n      contact_email: best.contact_email || '',\n\n      hunter_confidence: best.confidence_score || 0,\n\n      linkedin_url: best.linkedin_url || '',\n\n      emails_found: contacts.length\n    }\n  }\n];"
+      },
+      "id": "9722b59c-e11c-448c-bfcb-7ec41181da18",
+      "name": "Extract Best Contact",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.firecrawl.dev/v0/scrape",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_FIRECRAWL_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ url: $json.website, formats: ['markdown'] }) }}",
+        "options": {}
+      },
+      "id": "cb176a55-ab84-419a-bef1-af19bb3d7688",
+      "name": "Firecrawl Website Scrape",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst lead = staticData.currentEnrichLead || {};\nconst contact = staticData.contactInfo || {};\n\n// Clean website content\nlet websiteContent = ($json.data && $json.data.markdown) ? $json.data.markdown : '';\nwebsiteContent = websiteContent\n  .replace(/!\\[.*?\\]\\(.*?\\)/g, '')\n  .replace(/\\[([^\\]]*)\\]\\([^)]*\\)/g, '$1')\n  .replace(/[\\\\*_`#>]/g, '')\n  .replace(/\\n{3,}/g, '\\n\\n')\n  .trim()\n  .substring(0, 1200);\n\n// Parse opportunities\nlet opportunities = [];\ntry { opportunities = JSON.parse(lead.automation_opportunities || '[]'); } catch(e) {}\nconst oppList = opportunities.length > 0\n  ? opportunities.slice(0, 3).map(o => `- ${o.issue}: ${o.solution}`).join('\\n')\n  : `- ${lead.recommended_solution || 'Process automation and customer workflow'}`;\n\nconst firstName = contact.contact_name\n  ? contact.contact_name.split(' ')[0]\n  : '';\n\nconst systemPrompt = `You are a senior cold outreach copywriter for an AI automation consultancy targeting Indian SMBs.\n\nYour job: write one short, highly personalized cold email that sounds like it was written by a real person who actually looked at this business.\n\nStrict rules:\n- Email body must be under 130 words\n- Reference ONE specific thing you actually observed about their business (from the website content or business data)\n- Name ONE specific pain point with a realistic example of how it hurts them\n- Propose ONE concrete solution (not vague \"AI automation\")\n- End with a soft CTA: ask if they are open to a 10-minute call\n- Subject line: under 8 words, no spam words, no mention of AI or automation\n- No buzzwords: no leverage, streamline, revolutionize, cutting-edge, game-changer\n- Sound human. Not like a marketing template.\n\nReturn ONLY valid JSON:\n{\n  \"subject_line\": \"string\",\n  \"observation\": \"one specific thing noticed about this business\",\n  \"email_body\": \"complete email text starting with greeting\"\n}`;\n\nconst userContent = `Write a cold email for this business:\n\nBusiness: ${lead.business_name}\nType: ${lead.category}\nLocation: ${lead.area}, ${lead.city}\nRating: ${lead.rating}/5 with ${lead.reviews} Google reviews\nWebsite: ${lead.website}\nPhone: ${lead.phone}\n\nContact Person: ${contact.contact_name || 'the owner/decision maker'}\nRole: ${contact.contact_role || 'Business Owner'}\n\nIdentified Pain Points:\n${lead.pain_points || 'Manual customer handling, no digital automation'}\n\nTop Automation Opportunities:\n${oppList}\n\nBest Offer To Pitch:\n${lead.best_offer || lead.recommended_solution || 'AI workflow automation for customer interactions'}\n\nOutreach Angle (use as inspiration, do NOT copy-paste):\n${lead.outreach_angle || 'Help reduce manual workload and improve response time'}\n\nWhat we actually see on their website:\n${websiteContent || 'No website content available'}\n\nStart the email with: Hi ${firstName || 'there'},\nSender name: Tanmay\nOur agency helps Indian SMBs with lightweight AI automations for customer interactions, bookings, and follow-ups.`;\n\nreturn [{\n  json: {\n    request_body: {\n      contents: [{\n        parts: [{\n          text: `${systemPrompt}\\n\\n${userContent}\\n\\nIMPORTANT: Return ONLY valid JSON. No markdown. No explanation outside the JSON.`\n        }]\n      }],\n      generationConfig: {\n        temperature: 0.75,\n        maxOutputTokens: 1500,\n        responseMimeType: 'application/json',\n        thinkingConfig: { thinkingBudget: 0 }\n      }\n    }\n  }\n}];"
+      },
+      "id": "1d9b6844-300d-4612-a4c5-d38ff9cd6b64",
+      "name": "Build Gemini Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "YOUR_GEMINI_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.request_body) }}",
+        "options": {}
+      },
+      "id": "efc1cc35-8f69-41e3-ad29-41fe571324fc",
+      "name": "Gemini Personalization",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2032,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "let aiOutput = {};\n\ntry {\n  let rawContent =\n    $json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\n\n  rawContent = rawContent\n    .replace(/```json/gi, '')\n    .replace(/```/g, '')\n    .trim();\n\n  const jsonMatch = rawContent.match(/\\{[\\s\\S]*\\}/);\n\n  if (jsonMatch) {\n    aiOutput = JSON.parse(jsonMatch[0]);\n  }\n} catch (e) {\n  console.log('Parse error:', e);\n}\n\nreturn [\n  {\n    json: {\n      place_id: $json.place_id || '',\n      business_name: $json.business_name || '',\n\n      contact_name: $json.contact_name || '',\n      contact_role: $json.contact_role || '',\n      contact_email: $json.contact_email || '',\n      linkedin_url: $json.linkedin_url || '',\n\n      confidence_score: $json.hunter_confidence || 0,\n\n      personalized_subject: aiOutput.subject_line || '',\n      personalized_observation: aiOutput.observation || '',\n      personalized_email: aiOutput.email_body || '',\n\n      outreach_status: 'outreach_ready',\n      status: 'outreach_ready',\n\n      enriched_at: new Date().toISOString()\n    }\n  }\n];"
+      },
+      "id": "76001d78-61f7-4585-97ff-c9f0077ae915",
+      "name": "Parse Outreach Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2496,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "AI lead discovery",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1784149218,
+          "mode": "list",
+          "cachedResultName": "outreach enrichment",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1784149218"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "place_id": "={{ $json.place_id }}",
+            "business_name": "={{ $json.business_name }}",
+            "contact_name": "={{ $json.contact_name }}",
+            "contact_email": "={{ $json.contact_email }}",
+            "linkedin_url": "={{ $json.linkedin_url }}",
+            "personalized_email": "={{ $json.personalized_email }}",
+            "outreach_status": "={{ $json.outreach_status }}",
+            "contact_role": "={{ $json.contact_role }}",
+            "confidence": "={{ $json.confidence_score }}",
+            "personalized_observation": "={{ $json.personalized_observation }}",
+            "time": "={{ $json.enriched_at }}"
+          },
+          "matchingColumns": [
+            "place_id"
+          ],
+          "schema": [
+            {
+              "id": "place_id",
+              "displayName": "place_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "business_name",
+              "displayName": "business_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_name",
+              "displayName": "contact_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_role",
+              "displayName": "contact_role",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contact_email",
+              "displayName": "contact_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "linkedin_url",
+              "displayName": "linkedin_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "confidence",
+              "displayName": "confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "personalized_observation",
+              "displayName": "personalized_observation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "personalized_subject",
+              "displayName": "personalized_subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "personalized_email",
+              "displayName": "personalized_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_status",
+              "displayName": "outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "time",
+              "displayName": "time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "d63a6a16-d2c6-4209-8fff-8165e8558fbd",
+      "name": "Update Lead in Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        2704,
+        112
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 10
+      },
+      "id": "57802f9d-dbd6-42b1-9019-a66c07bd7f71",
+      "name": "Wait Between Leads",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2928,
+        112
+      ],
+      "webhookId": "enrich-wait-001"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://YOUR_LOCAL_N8N_HOST/hooks/wake",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_LOCAL_WEBHOOK_TOKEN"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"Run the linkedin-lead-gen skill for this lead and POST the result to the callback URL.\\n\\n```json\\n{\\n  \\\"business_name\\\": \\\"{{$json.business_name}}\\\",\\n  \\\"city\\\": \\\"{{$json.city}}\\\",\\n  \\\"niche\\\": \\\"{{$json.niche}}\\\",\\n  \\\"website\\\": \\\"{{$json.website}}\\\",\\n  \\\"extracted_domain\\\": \\\"{{$json.extracted_domain}}\\\",\\n  \\\"callback_url\\\": \\\"{{$execution.resumeUrl}}\\\"\\n}\\n```\",\n  \"mode\": \"now\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1312,
+        -144
+      ],
+      "id": "09254a5f-1950-4f2f-ad6b-bffe5eb3b1ef",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "numberInputs": 3,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2272,
+        -112
+      ],
+      "id": "7000f1b7-ce8c-4148-a1bb-7e8f3610a25f",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/mixed_people/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR_APOLLO_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"q_organization_domains\": [\"{{ $json.website.replace('https://','').replace('http://','').split('/')[0] }}\"],\n  \"person_titles\": [\n    \"founder\",\n    \"owner\",\n    \"operations manager\",\n    \"marketing manager\",\n    \"general manager\"\n  ],\n  \"page\": 1,\n  \"per_page\": 5\n}",
+        "options": {}
+      },
+      "id": "598ce79a-1c9f-4fa3-8702-ad096f52c495",
+      "name": "apollo Email Discovery",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1072,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.hunter.io/v2/domain-search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "domain",
+              "value": "={{$json.extracted_domain}}"
+            },
+            {
+              "name": "api_key",
+              "value": "YOUR_HUNTER_API_KEY"
+            },
+            {
+              "name": "limit",
+              "value": "2"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a78e66ed-ae49-4a70-8729-10e5dde76e08",
+      "name": "hunter Email Discovery",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        832,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "limitWaitTime": true,
+        "resumeAmount": 3,
+        "resumeUnit": "minutes",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1264,
+        96
+      ],
+      "id": "0687e8de-9f3e-4a78-83f9-b124c7379004",
+      "name": "Wait",
+      "webhookId": "03f69885-2c2e-4588-ab40-7fc12010434a"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Leads": {
+      "main": [
+        [
+          {
+            "node": "Filter High-Quality Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter High-Quality Leads": {
+      "main": [
+        [
+          {
+            "node": "Loop Through Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Through Leads": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Store Lead Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Lead Context": {
+      "main": [
+        [
+          {
+            "node": "apollo Email Discovery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Best Contact": {
+      "main": [
+        [
+          {
+            "node": "Firecrawl Website Scrape",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Firecrawl Website Scrape": {
+      "main": [
+        [
+          {
+            "node": "Build Gemini Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Gemini Request": {
+      "main": [
+        [
+          {
+            "node": "Gemini Personalization",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Personalization": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Parse Outreach Response": {
+      "main": [
+        [
+          {
+            "node": "Update Lead in Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Lead in Sheets": {
+      "main": [
+        [
+          {
+            "node": "Wait Between Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Between Leads": {
+      "main": [
+        [
+          {
+            "node": "Loop Through Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        []
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Parse Outreach Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "apollo Email Discovery": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "hunter Email Discovery": {
+      "main": [
+        []
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Extract Best Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "920e114f-1bde-465e-bc0a-7e6ef149134a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "id": "HSZQ5KPVhDgKV2uC",
+  "tags": []
+}
